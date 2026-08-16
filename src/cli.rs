@@ -156,13 +156,9 @@ pub struct AnalyzeArgs {
     /// Print the full lineage of the N worst decisions by execution gap.
     #[arg(long, default_value_t = 3)]
     pub explain: usize,
-    /// Attribute edge loss by exact Shapley value rather than a waterfall.
-    ///
-    /// Shapley is order-independent and costs `2^k` simulation passes for
-    /// `k` factors; the waterfall costs `k + 1` but its split depends on the
-    /// order the factors are switched on.
-    #[arg(long, default_value_t = true)]
-    pub shapley: bool,
+    /// How to split edge loss across the execution factors.
+    #[arg(long, value_enum, default_value = "shapley")]
+    pub attribution: AttributionArg,
 }
 
 /// Execution realism knobs shared by the simulating verbs.
@@ -218,6 +214,22 @@ pub struct ExecArgs {
     /// This is what separates a wrong decision from a badly executed one.
     #[arg(long, default_value_t = 30_000)]
     pub decision_horizon_ms: i64,
+}
+
+/// Method used to divide edge loss between factors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum AttributionArg {
+    /// Exact Shapley values over all `2^k` factor subsets.
+    ///
+    /// Order-independent and sums exactly to the total. Costs 32 simulation
+    /// passes for the five factors here.
+    Shapley,
+    /// Sequential waterfall, enabling factors one at a time.
+    ///
+    /// Costs only `k + 1` passes, but the split depends on the order factors
+    /// are switched on — whichever goes first absorbs the interaction between
+    /// them. Cheaper, and less trustworthy when factors interact.
+    Waterfall,
 }
 
 /// How cancellations ahead of a resting order are treated.

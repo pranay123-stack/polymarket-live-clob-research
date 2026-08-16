@@ -14,6 +14,60 @@ no generated books, no invented price paths.
 
 ---
 
+## Run it
+
+```bash
+git clone https://github.com/pranay123-stack/polymarket-live-clob-research
+cd polymarket-live-clob-research
+cargo build --release
+```
+
+Needs Rust 1.82+. Nothing else — no API key, no account, no config.
+
+**Start here.** This runs on committed real market data, so it needs no
+network and reproduces the numbers in this README exactly:
+
+```bash
+cargo run --release -- analyze --file tests/fixtures/session_btc_sample.jsonl
+```
+
+Takes ~20 seconds — it runs 32 replay passes to compute the Shapley
+attribution. You should see `EDGE LOSS: $9.11` and a per-decision breakdown.
+
+Three more, all offline:
+
+```bash
+# What's in the recording: events, markets, liquidity, feed delay, book integrity
+cargo run --release -- inspect --file tests/fixtures/session_btc_sample.jsonl
+
+# Prove the replay is deterministic — compares 6 stages across 2 runs
+cargo run --release -- verify-replay --file tests/fixtures/session_btc_sample.jsonl
+
+# Full audit trail: 4 joined CSVs + the 3 worst decisions in full lineage
+cargo run --release -- analyze --file tests/fixtures/session_btc_sample.jsonl \
+  --csv-dir audit/ --explain 3
+```
+
+And two that hit the live exchange (read-only — no orders, ever):
+
+```bash
+# Watch the ideal-vs-realistic gap accrue live. No arguments required.
+cargo run --release -- shadow --seconds 120
+
+# Capture your own session, then analyse it
+cargo run --release -- record --seconds 300 --out data
+cargo run --release -- analyze --file $(ls -t data/*.jsonl | head -1)
+```
+
+> **Reading the output:** the deliverable is the *measurement*, not a
+> profitable strategy. The signal is deliberately naive — its only job is to
+> generate realistic decisions so execution has something to be measured on.
+> A losing P&L or a sub-50% hit rate is the tool working, not failing.
+
+Full flag reference is in [Command reference](#command-reference) below.
+
+---
+
 ## 1. Problem
 
 A strategy looks profitable in simulation and loses money live. "Slippage" is
@@ -199,9 +253,23 @@ portfolio total with a **$0.00** residual on the fixture.
 
 **By factor**, using exact Shapley values across all `2^5 = 32` subsets. A
 sequential waterfall is cheaper, but its answer depends on the order factors
-are enabled, and latency and queue position interact strongly here. Shapley is
-order-independent and sums exactly to the total; the residue from integer
-division is reported as its own row rather than absorbed.
+are enabled. That is not a theoretical concern — on the committed fixture the
+two methods **disagree about which cause is largest**:
+
+| | Waterfall (6 runs) | Shapley (32 runs) |
+|---|---|---|
+| #1 cause | Stale market data **43.9%** | Queue position **46.6%** |
+| #2 cause | Queue position 35.7% | Stale market data 23.9% |
+| #3 cause | Depth & slippage 15.0% | Order latency 17.7% |
+| **Total** | **$9.11** | **$9.11** |
+
+Both are arithmetically correct and sum to the same figure. The waterfall
+ranks stale data first because it happens to be enabled first and absorbs the
+interaction with everything after it. Shapley is order-independent, so it is
+the one to act on. Run both with `--attribution`.
+
+The residue from integer division is reported as its own row rather than
+absorbed.
 
 **By decision**, answering the question a P&L line cannot:
 
@@ -245,7 +313,7 @@ Walkthrough with real output in [`docs/DEMO.md`](docs/DEMO.md).
 
 ## 10. Testing methodology
 
-**176 tests — 121 unit, 55 integration — all running on real recorded
+**177 tests — 121 unit, 56 integration — all running on real recorded
 Polymarket data.**
 
 ```bash
@@ -319,27 +387,143 @@ trading infrastructure and makes no claim to be.
 
 ---
 
-## Quick start
+## Command reference
+
+Every command supports `--help`. Only the file-reading commands require an
+argument; `record` and `shadow` discover live markets themselves.
+
+### `record` — capture live market data
 
 ```bash
-cargo build --release
-
-# Reproduce the headline numbers from committed real data
-cargo run --release -- analyze --file tests/fixtures/session_btc_sample.jsonl
-
-# Full audit trail
-cargo run --release -- analyze --file tests/fixtures/session_btc_sample.jsonl \
-  --csv-dir audit/ --explain 3
-
-# Prove replay determinism
-cargo run --release -- verify-replay --file tests/fixtures/session_btc_sample.jsonl
-
-# Record your own session from the live exchange
 cargo run --release -- record --seconds 600 --out data
-cargo run --release -- inspect --file data/session_btc_<ts>.jsonl
+```
 
-# Watch the gap accrue live, without sending anything
-cargo run --release -- shadow --seconds 300
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--underlying` | `btc` | `btc`, `eth`, `sol`, `xrp`, `doge` |
+| `--seconds` | `600` | How long to record |
+| `--out` | `data` | Output directory |
+| `--lookahead` | `3` | Future rounds to subscribe to, to catch market opens |
+| `--refresh` | `60` | Seconds between market re-discovery passes |
+
+Writes `data/session_<coin>_<ts>.jsonl`. Roughly 230 KB/s, so an hour is
+~800 MB. Ctrl-C stops early and keeps the file.
+
+### `inspect` — summarise a session
+
+```bash
+cargo run --release -- inspect --file <session.jsonl> [--detail]
+```
+
+Events by type, markets, per-token liquidity, measured feed delay, clock
+offset, and book-integrity counters (stale rejections, crossed books, deltas
+before snapshot).
+
+### `replay` — deterministic replay with execution simulation
+
+```bash
+cargo run --release -- replay --file <session.jsonl>
+```
+
+Accepts every simulation flag below.
+
+### `analyze` — the full report
+
+```bash
+cargo run --release -- analyze --file <session.jsonl> [--csv-dir DIR] [--explain N]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--csv-dir` | – | Write `decisions.csv`, `orders.csv`, `fills.csv`, `pnl.csv` |
+| `--csv` | – | Write just the per-factor attribution table |
+| `--fills-csv` | – | Write just the per-fill table |
+| `--explain` | `3` | Print the N worst decisions in full lineage |
+| `--attribution` | `shapley` | `shapley` (32 runs, order-independent) or `waterfall` (6 runs, cheaper) |
+
+### `shadow` — live observation, nothing sent
+
+```bash
+cargo run --release -- shadow --seconds 300 [--record-to data]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--underlying` | `btc` | Which market family to follow |
+| `--seconds` | `300` | How long to observe |
+| `--record-to` | – | Also save the frames, so you can replay them later |
+
+### `verify-replay` — prove determinism
+
+```bash
+cargo run --release -- verify-replay --file <session.jsonl> [--runs 3]
+```
+
+Compares order book checksum, decisions, orders, fills, P&L and attribution
+across runs. Exits non-zero if any stage differs.
+
+### Simulation flags
+
+Shared by `replay`, `analyze`, `shadow` and `verify-replay`.
+
+**Execution realism:**
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--md-latency-ms` | `-1` | `-1` means *measure it from the recording*. A positive value overrides with a fixed delay, for sensitivity analysis. |
+| `--submit-latency-ms` | `120` | **Assumption** — cannot be measured without trading. Sweep it. |
+| `--cancel-latency-ms` | `120` | **Assumption** — same. |
+| `--queue-model` | `pessimistic` | `pessimistic`, `proportional`, `optimistic`. Run all three to bracket the answer. |
+| `--taker-fee-bps` | `0` | Observed at 0 on this market family. |
+| `--maker-fee-bps` | `0` | Same. |
+
+**The strategy being measured:**
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--style` | `split` | `passive`, `aggressive`, or `split` (half of each) |
+| `--order-shares` | `100` | Size per decision. Keep small against displayed depth — there is no market-impact model. |
+| `--max-position` | `500` | Position cap per token |
+| `--signal-threshold` | `0.35` | Imbalance magnitude required to act |
+| `--signal-depth` | `5` | Book levels in the imbalance calculation |
+| `--decision-cooldown-ms` | `2000` | Minimum gap between decisions on one token |
+| `--order-ttl-ms` | `5000` | How long a resting order waits before cancelling |
+| `--decision-horizon-ms` | `30000` | When the midpoint judges whether the decision was right |
+| `--cash` | `10000` | Starting cash, in dollars |
+
+### Worked examples
+
+```bash
+F=tests/fixtures/session_btc_sample.jsonl
+
+# Sweep the one input that is an assumption rather than a measurement
+for l in 20 120 500; do
+  cargo run --release -- analyze --file $F \
+    --submit-latency-ms $l --cancel-latency-ms $l
+done
+
+# Bracket the queue assumption
+for q in pessimistic proportional optimistic; do
+  cargo run --release -- replay --file $F --queue-model $q
+done
+
+# Passive-only: queue position with no aggressive leg to hide behind
+cargo run --release -- replay --file $F --style passive
+
+# See why the attribution method matters
+cargo run --release -- analyze --file $F --attribution waterfall
+cargo run --release -- analyze --file $F --attribution shapley
+
+# Watch ETH instead, and keep the data
+cargo run --release -- shadow --underlying eth --seconds 300 --record-to data
+```
+
+### Tests
+
+```bash
+cargo test --all          # 177 tests, ~90s
+cargo fmt --all --check
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 ## Safety

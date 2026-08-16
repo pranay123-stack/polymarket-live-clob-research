@@ -139,8 +139,20 @@ Contributions accumulate as `i128` numerators over a common denominator, and
 whatever the final division truncates is reported as an explicit `rounding`
 row rather than quietly dropped, so the parts always sum to the whole.
 
-Use `--shapley false` for the cheaper waterfall. Both report the same total;
-only the split differs.
+Use `--attribution waterfall` for the cheaper `k + 1` run version. Both report
+the same total; only the split differs — and on the committed fixture they
+disagree about which cause is *largest*, because the waterfall's first factor
+absorbs its interaction with every factor after it:
+
+| | Waterfall | Shapley |
+|---|---|---|
+| Stale market data | **43.9%** | 23.9% |
+| Queue position | 35.7% | **46.6%** |
+| Order latency | 5.5% | 17.7% |
+| Depth & slippage | 15.0% | 11.7% |
+| Total | $9.11 | $9.11 |
+
+That is the whole argument for paying 32 runs instead of 6.
 
 ## Accounting
 

@@ -443,10 +443,9 @@ pub fn analyze(args: AnalyzeArgs) -> Result<()> {
     println!("Measured feed delay, ms:\n{}\n", delay.summary());
     print_settings(&base, measured_md);
 
-    let method = if args.shapley {
-        Method::Shapley
-    } else {
-        Method::Waterfall
+    let method = match args.attribution {
+        crate::cli::AttributionArg::Shapley => Method::Shapley,
+        crate::cli::AttributionArg::Waterfall => Method::Waterfall,
     };
     println!(
         "Attribution method:\n{:?} ({} simulation runs)\n",

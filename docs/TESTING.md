@@ -91,7 +91,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
 ```
 
-All three pass clean. `cargo test --all` runs 176 tests — 121 unit and 55
+All three pass clean. `cargo test --all` runs 177 tests — 121 unit and 56
 integration — in about a minute; the bulk of the time is the 32-run Shapley
 passes, which are deliberately exhaustive.
 

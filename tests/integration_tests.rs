@@ -88,6 +88,36 @@ fn analyze_produces_a_complete_edge_loss_attribution() {
 }
 
 #[test]
+fn both_attribution_methods_are_reachable_and_agree_on_the_total() {
+    // The waterfall was once unreachable: the flag was a bare bool, so
+    // `--shapley false` errored and only Shapley could ever run.
+    let path = common::fixture_path();
+    let p = path.to_str().unwrap();
+
+    let (shapley, _, ok) = cli(&["analyze", "--file", p, "--attribution", "shapley"]);
+    assert!(ok, "shapley attribution must run");
+    assert!(shapley.contains("Shapley (32 simulation runs)"));
+
+    let (waterfall, _, ok) = cli(&["analyze", "--file", p, "--attribution", "waterfall"]);
+    assert!(ok, "waterfall attribution must run");
+    assert!(waterfall.contains("Waterfall (6 simulation runs)"));
+
+    // Same total either way; only the split between factors differs.
+    let edge = |out: &str| {
+        out.lines()
+            .skip_while(|l| !l.starts_with("EDGE LOSS:"))
+            .nth(1)
+            .map(str::to_owned)
+            .expect("an EDGE LOSS figure")
+    };
+    assert_eq!(
+        edge(&shapley),
+        edge(&waterfall),
+        "the total gap must not depend on how it is attributed"
+    );
+}
+
+#[test]
 fn analyze_writes_a_factor_csv_that_balances() {
     let dir = std::env::temp_dir().join("pmclob_csv_test");
     std::fs::create_dir_all(&dir).unwrap();

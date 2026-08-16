@@ -188,7 +188,7 @@ README, in `strategy.rs`, and in the footer of every `analyze` run.
 ```
 cargo fmt --all --check                                   clean
 cargo clippy --all-targets --all-features -- -D warnings  clean
-cargo test --all                                          176 passed, 0 failed
+cargo test --all                                          177 passed, 0 failed
 verify-replay --file tests/fixtures/session_btc_sample.jsonl
                                                           IDENTICAL RESULT
 ```
