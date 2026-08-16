@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+
+# Recorded sessions: ~230 KB/second, so an hour is ~800 MB.
+# The committed fixture in tests/fixtures/ is what the suite runs on.
+/data/*.jsonl
+/data/*.csv
+
+# Generated reports
+*.report.csv
